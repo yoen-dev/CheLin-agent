@@ -15,7 +15,7 @@ ActionType 里的动作。这是回答"约束3怎么在代码层面 100% 强制"
 
 from enum import Enum
 from typing import List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, constr
 
 
 class Intent(str, Enum):
@@ -64,6 +64,10 @@ class LLMJudgement(BaseModel):
         description="如果后续决定要回复客户，这是建议的回复草稿；"
                     "是否真的会被发送，由 Controller 和限流器决定，不由 LLM 决定。",
     )
+    reasoning: str = Field(
+        default="",
+        description="供内部复盘使用的简短判断依据，不直接展示给客户。",
+    )
 
 
 class ChatMessage(BaseModel):
@@ -74,9 +78,11 @@ class ChatMessage(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    """前端发来的一条客户消息。"""
-    customer_id: str
-    message: str
+    """前端发来的一条客户消息，先在 HTTP 边界拒绝空值和异常长输入。"""
+    # 限制输入长度可以避免无意义的超长历史污染 LLM 上下文，
+    # 也避免客户 ID 变成无限增长的内存字典键。
+    customer_id: constr(strip_whitespace=True, min_length=1, max_length=128)
+    message: constr(strip_whitespace=True, min_length=1, max_length=4000)
 
 
 class ChatResponse(BaseModel):

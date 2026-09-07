@@ -36,8 +36,12 @@ from .config import settings
 
 class SlidingWindowRateLimiter:
     def __init__(self, window_seconds: int = None, max_messages: int = None):
-        self.window_seconds = window_seconds or settings.RATE_LIMIT_WINDOW_SECONDS
-        self.max_messages = max_messages or settings.RATE_LIMIT_MAX_MESSAGES
+        self.window_seconds = (
+            settings.RATE_LIMIT_WINDOW_SECONDS if window_seconds is None else window_seconds
+        )
+        self.max_messages = (
+            settings.RATE_LIMIT_MAX_MESSAGES if max_messages is None else max_messages
+        )
         self._sent_at: Dict[str, Deque[float]] = {}
         # 用一把全局锁保护这个内存结构。系统规模很小（agent场景不涉及题目一
         # 那种多进程 worker 抢任务），单进程内的线程锁就足够保证正确性；
@@ -46,7 +50,7 @@ class SlidingWindowRateLimiter:
         self._lock = threading.Lock()
 
     def _evict_old(self, q: Deque[float], now: float) -> None:
-        while q and now - q[0] > self.window_seconds:
+        while q and now - q[0] >= self.window_seconds:
             q.popleft()
 
     def allow(self, customer_id: str) -> bool:

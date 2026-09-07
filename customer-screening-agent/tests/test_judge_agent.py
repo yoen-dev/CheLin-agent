@@ -37,8 +37,22 @@ class SequenceLLMClient:
                              draft_reply="[复盘仲裁后的最终回复]")
 
 
+class PerspectiveRecordingClient(SequenceLLMClient):
+    def __init__(self, sequence):
+        super().__init__(sequence)
+        self.calls = []
+
+    def classify(self, history, latest_message, temperature=None, perspective=None):
+        self.calls.append((temperature, perspective))
+        return super().classify(history, latest_message)
+
+
 def j(intent, neg=False, draft=""):
     return LLMJudgement(intent=intent, emotion_negative=neg, draft_reply=draft)
+
+
+def j_low(intent, draft=""):
+    return LLMJudgement(intent=intent, emotion_negative=False, confidence=0.5, draft_reply=draft)
 
 
 def test_unanimous_agreement_no_review():
@@ -52,6 +66,14 @@ def test_unanimous_agreement_no_review():
     assert result.final.intent == Intent.INTERESTED
     assert client.review_called_with is None, "3票一致时不应该触发复盘"
     print("PASS: 3次判断完全一致 -> 直接采用，未触发复盘")
+
+
+def test_votes_use_distinct_temperatures_and_perspectives():
+    client = PerspectiveRecordingClient([j(Intent.OTHER), j(Intent.OTHER), j(Intent.OTHER)])
+    judge_with_review(client, [], "你们效率可真高", n_calls=3)
+    assert [call[0] for call in client.calls] == [0.0, 0.5, 0.9]
+    assert len({call[1] for call in client.calls}) == 3
+    print("PASS: 三票使用不同温度和审视视角")
 
 
 def test_majority_wins_over_outlier():
@@ -97,6 +119,19 @@ def test_single_vote_flip_does_not_change_outcome():
     assert result.used_review is False
     print("PASS: 攻击只操纵了3次独立调用中的1次时，多数投票机制正确抵御，"
           "最终结果没有被带偏（这是相比单次调用的额外鲁棒性收益）")
+
+
+def test_low_confidence_majority_triggers_review():
+    client = SequenceLLMClient([
+        j_low(Intent.NEED_MORE_INFO),
+        j_low(Intent.NEED_MORE_INFO),
+        j_low(Intent.INTERESTED),
+    ])
+    result = judge_with_review(client, [], "嗯，再说吧", n_calls=3)
+    assert result.used_review is True
+    assert result.review_reason == "低置信度"
+    assert client.review_called_with is not None
+    print("PASS: 有多数但平均置信度低 -> 触发复盘")
 
 
 if __name__ == "__main__":

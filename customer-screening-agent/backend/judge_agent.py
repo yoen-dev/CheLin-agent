@@ -34,6 +34,7 @@ controller.py 里的固定映射表决定。
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import List
+import inspect
 
 from .config import settings
 from .llm_client import LLMClient
@@ -46,6 +47,23 @@ class JudgeResult:
     final: LLMJudgement
     votes: List[LLMJudgement]
     used_review: bool
+    review_reason: str = ""
+
+
+PERSPECTIVES = [
+    (0.0, "按常规语义分类，同时核对客户的真实需求。"),
+    (0.5, "重点检查反讽、反话、阴阳怪气、过度礼貌包装的不满和表情符号语气。"),
+    (0.9, "假设客户真实情绪可能比字面更糟，结合历史趋势重新判断是否存在失望或敷衍。"),
+]
+
+
+def _classify(client, history, message, temperature, perspective):
+    parameters = inspect.signature(client.classify).parameters
+    if "temperature" in parameters or "perspective" in parameters:
+        return client.classify(
+            history, message, temperature=temperature, perspective=perspective
+        )
+    return client.classify(history, message)
 
 
 def judge_with_review(
@@ -58,7 +76,10 @@ def judge_with_review(
     n = max(1, n)
 
     # ---- 第一步：N 次独立调用 ----
-    votes: List[LLMJudgement] = [llm_client.classify(history, message) for _ in range(n)]
+    votes: List[LLMJudgement] = []
+    for index in range(n):
+        temperature, perspective = PERSPECTIVES[index % len(PERSPECTIVES)]
+        votes.append(_classify(llm_client, history, message, temperature, perspective))
 
     if n == 1:
         # 兼容单次调用场景（比如单元测试只想验证 Controller 逻辑，不想掺入投票复杂度）
@@ -69,7 +90,10 @@ def judge_with_review(
     top_intent, top_count = intent_counts.most_common(1)[0]
     majority_needed = n // 2 + 1
 
-    if top_count >= majority_needed:
+    average_confidence = sum(v.confidence for v in votes) / len(votes)
+    low_confidence = average_confidence < settings.REVIEW_CONFIDENCE_THRESHOLD
+
+    if top_count >= majority_needed and not low_confidence:
         # 有多数意见，直接采用，不需要复盘
         final_intent = top_intent
         used_review = False
@@ -89,9 +113,11 @@ def judge_with_review(
             emotion_negative=final_emotion,
             confidence=top_count / n,
             draft_reply=draft,
+            reasoning=next((v.reasoning for v in votes if v.intent == final_intent and v.reasoning), ""),
         )
         return JudgeResult(final=final, votes=votes, used_review=used_review)
 
     # ---- 第三步：没有多数意见 -> 复盘仲裁 ----
     final = llm_client.review(history, message, votes)
-    return JudgeResult(final=final, votes=votes, used_review=True)
+    reason = "低置信度" if low_confidence and top_count >= majority_needed else "投票无严格多数"
+    return JudgeResult(final=final, votes=votes, used_review=True, review_reason=reason)

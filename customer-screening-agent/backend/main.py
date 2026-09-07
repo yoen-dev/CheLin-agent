@@ -21,6 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .controller import process_message, reactivate
+from .config import settings
 from .llm_client import build_llm_client
 from .models import ChatRequest, ChatResponse, SessionSnapshot
 from .session_store import session_store
@@ -42,7 +43,15 @@ llm_client = build_llm_client()
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "llm_provider": type(llm_client).__name__}
+    is_gemini = type(llm_client).__name__ == "GeminiLLMClient"
+    return {
+        "status": "ok",
+        "llm_provider": type(llm_client).__name__,
+        "requested_provider": settings.LLM_PROVIDER,
+        "gemini_configured": settings.gemini_configured,
+        "degraded_to_mock": not is_gemini,
+        "model": settings.GEMINI_MODEL if is_gemini else None,
+    }
 
 
 @app.post("/chat", response_model=ChatResponse)
@@ -83,6 +92,5 @@ app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")
 
 if __name__ == "__main__":
     import uvicorn
-    from .config import settings
 
     uvicorn.run(app, host=settings.HOST, port=settings.PORT)

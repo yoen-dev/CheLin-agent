@@ -28,11 +28,15 @@ class Settings:
     #   1) 沙箱/答辩环境不一定能访问 Gemini 的域名，需要能一键切换成 Mock；
     #   2) 万一现场发的 Key 换成了别的厂商，只需要新增一个 Client 实现类。
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 
     # LLM_PROVIDER = "gemini" | "mock"
     # 本地没有网络 / 没配 Key 时自动降级为 mock，方便先把架构跑通。
     LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "gemini" if GEMINI_API_KEY else "mock")
+
+    @property
+    def gemini_configured(self) -> bool:
+        return bool(self.GEMINI_API_KEY)
 
     # ------------------------------------------------------------------
     # 安全约束相关配置（对应笔试题"硬性约束" 1~4）
@@ -56,6 +60,7 @@ class Settings:
     #   2) 抗注入更稳——攻击者要在3次独立调用里都稳定得手，比在1次里侥幸得手难得多。
     # 用奇数（默认3），避免频繁出现平局。
     MULTI_CALL_VOTES: int = int(os.getenv("MULTI_CALL_VOTES", "3"))
+    REVIEW_CONFIDENCE_THRESHOLD: float = float(os.getenv("REVIEW_CONFIDENCE_THRESHOLD", "0.65"))
 
     # ------------------------------------------------------------------
     # 服务相关

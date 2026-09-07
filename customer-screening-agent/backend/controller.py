@@ -98,8 +98,12 @@ def process_message(
         note_parts = []
         if judge_result.used_review:
             vote_summary = ", ".join(v.intent.value for v in judge_result.votes)
-            note_parts.append(f"{len(judge_result.votes)}次独立判断出现分歧({vote_summary})，"
-                               f"已触发复盘仲裁得到最终结果。")
+            if judge_result.review_reason == "低置信度":
+                note_parts.append(f"{len(judge_result.votes)}次判断平均置信度偏低({vote_summary})，"
+                                   f"已触发复盘仲裁得到最终结果。")
+            else:
+                note_parts.append(f"{len(judge_result.votes)}次独立判断出现分歧({vote_summary})，"
+                                   f"已触发复盘仲裁得到最终结果。")
 
         # ---------- 3. 达到阈值 -> 强制转人工，覆盖一切 ----------
         if session.bad_streak >= settings.ESCALATE_AFTER_CONSECUTIVE_BAD:
